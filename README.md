@@ -1,2 +1,2 @@
 # Minecraft Server Maker
- Make your own minecraft server easily!
+ Make your own Minecraft server easily!

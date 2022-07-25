@@ -1,0 +1,27 @@
+Minecraft Server Maker - Changelog
+
+TODO:
+- Possibility to update/modify the start.bat file and server.properties file of an already existing server.
+- Check that the custom java path can run the server (issue: if the exe has no version details, the actual behaviour is that the exe is not taken into account in the check_java function).
+
+v2.0:
+
+Added:
+- Custom Java path now have a file browse button to select the executable. Input and file browse button have tooltip.
+- Added text to track the progress of the server creation.
+- If you click on "OK" in the "Server created!" window, the server folder will open.
+- If Java is not installed or outdated, the program will now ask you if you want to download it and if yes, it will open your browser and redirect you.
+
+Changed:
+- Check if Java is installed differently, now using `where java` command and check if the latest version found is okay for the minecraft version chosen.
+- If no Java is found, start.bat will be created with 'Java' as the executable argument.
+
+Fixed:
+- If java wasn't installed subprocess.run() was raising an error and causing the 'Creating server' window to never close.
+- Now correctly inform the user that java is not installed or the version is not compatible.
+- Progress window now uses less cpu ressources.
+- Adds quotes around the path of Java so start.bat correctly works.
+
+Other:
+- Added a proper README file.
+- Added a changelog file.

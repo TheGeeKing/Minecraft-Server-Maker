@@ -3,7 +3,9 @@ import re
 import shutil
 import subprocess
 
+import pythoncom
 import requests
+from win32com.client import Dispatch
 
 import settings
 
@@ -77,30 +79,78 @@ def download(url: str, dest_folder: str):
                 os.fsync(f.fileno())
 
 
-def check_java(minecraft_version: str, custom_java: str) -> bool:
+def check_java(minecraft_version: str, custom_java: str|None = None) -> bool:
     """
-    It checks if the user has Java installed and if it's version is at least 17
+    It checks if the java version is ok for the minecraft version.
 
-    :param minecraft_version: The version of Minecraft you want to run
+    :param minecraft_version: str
     :type minecraft_version: str
-    :param custom_java: The path to the java executable. If you don't know what this is, leave it blank
-    :type custom_java: str
-    :return: a boolean value.
+    :param custom_java: str|None = None
+    :type custom_java: str|None
+    :return: The path to the java.exe file.
+
+    Paper documentation recommendations:
+    Paper Version	Recommended Java Version
+    1.8 to 1.11	Java 8
+    1.12 to 1.16.4	Java 11
+    1.16.5	Java 16
+    1.17.1-1.18.1+	Java 17
+
+    Test:
+    Java 8 can run up to 1.16.5
+    1.17 needs at least Java 16
+    1.18 needs at least Java 17
     """
-    if subprocess.run(f"{custom_java} -version" if custom_java else "java -version").returncode: # os.system(f"{custom_java} -version" if custom_java else "java -version")
-        window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": "Java is not installed"})
+    #TODO: check the custom java and return it if it's ok
+    where_java = subprocess.run(["where", "java"], capture_output=True, text=True)
+    if where_java.returncode:
+        window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": "Java is not installed!\nYou must install Java to run your server."})
+        return False
+    pythoncom.CoInitialize()
+    ver_parser = Dispatch("Scripting.FileSystemObject")
+    java_paths = where_java.stdout.split("\n")
+    java_paths.remove("")
+    dict_java_paths = {}
+
+
+    for java_path in java_paths:
+        info = ver_parser.GetFileVersion(java_path)
+
+        if info == "No Version Information Available":
+            continue
+
+        dict_java_paths[java_path] = float(info.split(".")[0] + "." + info.split(".")[1]) if info else None
+
+    max_java_path = max((java_paths), key=lambda x: dict_java_paths[x])
+    max_java_version = dict_java_paths[max_java_path]
+
+    # check if the max java version is ok for the minecraft_version
     try:
         minecraft_version = float(minecraft_version)
-    except Exception:
+    except ValueError:
         minecraft_version = float(f"{minecraft_version.split('.')[0]}.{minecraft_version.split('.')[1]}")
-    if minecraft_version < 1.18:
-        return True
-    output = subprocess.run([f"{custom_java}" if custom_java else "java", "-version"], capture_output=True, text=True)
-    string = output.stdout.split("\n")[0] if output.stdout else output.stderr.split("\n")[0]
-    result = re.search("\"(.*)\"", string)
-    if int(result[1].split(".", maxsplit=1)[0])>=17:
-        return True
-    window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": f"Java version is {result[1]} but it needs to be at least 17"})
+
+    if max_java_version >= 17:
+        return max_java_path
+    if minecraft_version <= 1.16:
+        if max_java_version >= 8:
+            return max_java_path
+        else:
+            window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": f"Java version is {max_java_version} but it needs to be at least 8"})
+            return False
+    if minecraft_version == 1.17:
+        if max_java_version >= 16:
+            return max_java_path
+        else:
+            window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": f"Java version is {max_java_version} but it needs to be at least 16"})
+            return False
+    if minecraft_version == 1.18:
+        if max_java_version >= 17:
+            return max_java_version
+        else:
+            window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": f"Java version is {max_java_version} but it needs to be at least 17"})
+            return False
+    window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": "This error is related to your Java version.\nPlease report it on GitHub:\ngithub.com/TheGeeKing/Minecraft-Server-Maker/issues"})
     return False
 
 
@@ -120,8 +170,22 @@ def setup_start_file(dest_folder: str):
     "--ONLINE-AUTHENTICATION--": "--online-mode true",
     }
     _, values = window.read(timeout=0)
-    if not check_java(settings.get("minecraft_version"), values["--CUSTOM-JAVA--"]):
-        return
+    user_java_path = f"\"{values['--CUSTOM-JAVA--']}\"" if values['--CUSTOM-JAVA--'] else None # add quotes around the path
+    optimal_java_runtime = check_java(settings.get("minecraft_version"), user_java_path)
+    if user_java_path:
+        java_runtime = user_java_path
+    elif optimal_java_runtime:
+        java_runtime = f"\"{optimal_java_runtime}\""
+    else:
+        java_runtime = "java"
+
+    if java_runtime not in ["java", optimal_java_runtime]: # skip that if java_runtime is from optimal_java_runtime because it is from `where java`
+        test_java_runtime_provided: bool = os.system(f"{java_runtime} -version") # if no error occurs, it means that the java runtime provided by the user is correct and it's returncode is 0
+        if test_java_runtime_provided: # if java_runtime is incorrect, returncode 1
+            window.write_event_value("--POPUP-ERROR--", {"title": "Error", "text": f"Error running your custom java path:\n{user_java_path}\nPlease check if it's correct!\nIt will automatically fallback to the optimal java runtime."})
+            java_runtime = optimal_java_runtime
+        else:
+            pass #TODO: check if the custom java can run the minecraft version, maybe direclty in check_java function
     paper_args = ""
     for key, value in dict_start.items():
         if key=="--ENABLE-GUI--" and values[key]:
@@ -130,7 +194,7 @@ def setup_start_file(dest_folder: str):
             paper_args += f" {value}"
     start_content = """{auto_restart_1}{java_runtime} -Xms{xms}M -Xmx{xmx}M -jar {paper_jar}{paper_args}
 {auto_restart_2}
-{pause}""".format(auto_restart_1=":start\n" if values["--AUTO-RESTART--"] else "", java_runtime="java" if values["--CUSTOM-JAVA--"]=="" else values["--CUSTOM-JAVA--"], xms=int(values["--XMS--"]), xmx=int(values["--XMX--"]), paper_jar=settings.get("filename"), paper_args=paper_args, auto_restart_2="goto :start\n" if values["--AUTO-RESTART--"] else "", pause="PAUSE" if values["--PAUSE--"] else "")
+{pause}""".format(auto_restart_1=":start\n" if values["--AUTO-RESTART--"] else "", java_runtime=java_runtime, xms=int(values["--XMS--"]), xmx=int(values["--XMX--"]), paper_jar=settings.get("filename"), paper_args=paper_args, auto_restart_2="goto :start\n" if values["--AUTO-RESTART--"] else "", pause="PAUSE" if values["--PAUSE--"] else "")
     write_file(os.path.join(dest_folder, "start.bat"), start_content)
 
 
@@ -144,13 +208,18 @@ def setup_server(url):
     global window
     window, folder_path, folder_name = settings.get("window"), settings.get("folder_path"), settings.get("folder_name")
     dest_folder = os.path.join(folder_path, folder_name)
+    window.write_event_value("--UPDATE--", "Making folder...")
     make_folder(dest_folder)
     # download file with url to server folder
+    window.write_event_value("--UPDATE--", "Downloading JAR file...")
     download(url, dest_folder)
     # write file to server folder
+    window.write_event_value("--UPDATE--", "Agreeing to EULA...")
     write_file(os.path.join(dest_folder, "eula.txt"), "eula=true")
     # write server.properties file
+    window.write_event_value("--UPDATE--", "Writing server.properties...")
     write_file(os.path.join(dest_folder, "server.properties"), settings.get("server_properties"))
 
+    window.write_event_value("--UPDATE--", "Creating start file...")
     setup_start_file(dest_folder)
     window.write_event_value("--FINISHED--", "")

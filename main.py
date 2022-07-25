@@ -89,7 +89,10 @@ if __name__ == "__main__":
         ]
 
     tab3_layout = [
-        [sg.Text("Custom Java path:"), sg.Input(key="--CUSTOM-JAVA--")],
+        [
+            sg.Text("Custom Java path:"),
+            sg.Input(key="--CUSTOM-JAVA--", tooltip="The path to the Java executable.\nLeave blank to use the default Java path.\ne.g. C:\Program Files (x86)\Common Files\Oracle\Java\javapath\java.exe"),
+            sg.FileBrowse(button_text="Browse", tooltip="Select your Java executable.")],
         [
             sg.Slider(range=(1024,10240), resolution=512, default_value=2048, orientation="horizontal", key="--XMS--", enable_events=True),
             sg.Slider(range=(1024,10240), resolution=512, default_value=2048, orientation="horizontal", key="--XMX--", enable_events=True)
@@ -158,17 +161,31 @@ if __name__ == "__main__":
             threading.Thread(target=setup_server, args=(get_download_url(values["--DROPDOWN-VERSIONS--"], values["--DROPDOWN-BUILDS--"]),)).start()
             layout_loading = [
                 [sg.Image(sg.DEFAULT_BASE64_LOADING_GIF, key="--LOADING-IMAGE--")],
-                [sg.Text("Creating server...")]
+                [sg.Text("Creating server...", key="--LOADING-TEXT--")]
             ]
             loading_window = sg.Window("", layout_loading, modal=True, finalize=True, icon="MMA.ico", element_justification="center", disable_close=True)
             while True:
-                loading_window.read(timeout=10)
+                loading_window.read(timeout=50)
                 loading_window["--LOADING-IMAGE--"].update_animation(sg.DEFAULT_BASE64_LOADING_GIF, time_between_frames=100)
-                event, values = window.read(timeout=0)
+                event, values = window.read(timeout=50)
                 if event == "--FINISHED--":
                     loading_window.close()
-                    sg.popup_ok("Server created!", icon="MMA.ico")
+                    answer = sg.popup_ok("Server created!", icon="MMA.ico")
+                    if answer == "OK":
+                        # open the folder in the explorer
+                        os.startfile(os.path.join(values["--FOLDER-PATH--"],values["--NAME--"]))
                     break
+                elif event == "--POPUP-ERROR--":
+                    sg.popup_error(values[event]["text"], title=values[event]["title"], icon="MMA.ico")
+                    if values[event]["text"].startswith("Java is not installed!") or values[event]["text"].startswith("Java version is"):
+                        if values[event]["text"].startswith("Java is not installed!"):
+                            answer = sg.popup_yes_no("Java is not installed!\nDo you want to download it?", title="Java is not installed!", icon="MMA.ico")
+                        else:
+                            answer = sg.popup_yes_no("The version of Java is outdated!\nDo you want to download the latest version?", title="Your version of Java is outdated!", icon="MMA.ico")
+                        if answer == "Yes":
+                            webbrowser.open("https://adoptium.net")
+                elif event == "--UPDATE--":
+                    loading_window["--LOADING-TEXT--"].update("Creating server...\n" + values[event])
         elif (event == "--ENABLE-SYNC-RAM--" and values["--ENABLE-SYNC-RAM--"]) or (event == "--XMS--" and values["--ENABLE-SYNC-RAM--"]):
             window["--XMX--"].update(value=values["--XMS--"])
         elif event == "--XMX--" and values["--XMX--"] < values["--XMS--"]:
